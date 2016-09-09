@@ -1,0 +1,8 @@
+A cross plaform utility for the Benetech GM1020 USB logging luxmeter.
+
+Requires python3 (or 2) and the PySerial module.
+
+Windows and OSX users will need to adjust the `--port` flag for their OS.
+
+Todo:
+Autodetect the correct port for other OSes. 
