@@ -172,7 +172,6 @@ def generate_settings(**kwargs):
 def send(message):
     for b in message:
         try:
-            print(b.to_bytes(1, byteorder='big'))
             com.write(b.to_bytes(1, byteorder='big'))
         except AttributeError:  # python2
             com.write([b])
