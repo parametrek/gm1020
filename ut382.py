@@ -149,7 +149,7 @@ def decode_lux(summary):
     digits = [summary['big_1000'], summary['big_100'], summary['big_10'], summary['big_1']]
     if digits == [None, 0, 'L', None]:
         return None, unit
-    lux = 0
+    lux = 0.0
     for i,d in enumerate(reversed(digits)):
         if d is None:
             continue
@@ -162,6 +162,8 @@ def decode_lux(summary):
         lux *= 0.001
     if summary['x10']:
         lux *= 10
+    if not any(summary[d] for d in ['big_10ths', 'big_100ths', 'big_1000ths']):
+        lux = int(lux)
     return lux, unit
 
 def live_raw():
@@ -228,17 +230,21 @@ def core(options):
     if options.path:
         redirect = open(options.path, 'w', 1)
 
-    if options.moving:
+    if options.monitor:
+        source = live_monitor(options.strftime)
+        k = 'lux'
+    elif options.moving:
+        source = live_average(options.strftime, options.moving)
+        k = 'ave_lux'
+    if options.monitor or options.moving:
         redirect.write('time\tlight\tunit\n')
-        for data in live_average(options.strftime, options.moving):
-            lux = '%.2f' % data['ave_lux']
-            redirect.write('\t'.join([data['time'], lux, data['unit']]) + '\n')
-    elif options.monitor:
-        redirect.write('time\tlight\tunit\n')
-        for data in live_monitor(options.strftime):
-            if data['lux'] is None:
+        for data in source:
+            num = '%.2f'
+            if data[k] is None:
                 continue
-            lux = '%.2f' % data['lux']
+            if type(data[k]) == int:
+                num = '%i'
+            lux = num % data[k]
             redirect.write('\t'.join([data['time'], lux, data['unit']]) + '\n')
 
     if options.path:
