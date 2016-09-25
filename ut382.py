@@ -10,7 +10,7 @@ import serial
 
 default_port = '/dev/ttyUSB0'
 baud = 19200
-timeout = 0.05
+timeout = 0.2
 default_timestamp = '%Y-%m-%d %H:%M:%S.%f'
 com = None
 
@@ -128,15 +128,16 @@ def decode_raw(bs):
         weird.append('bad byte 30')
     if len(bs) > 31 and bs[31] != 0x0A:
         weird.append('bad byte 31')
-    # byte 32 might be a checksum?
+    # last byte might be a checksum?
+    # usually consistent, sometimes wiggles between two values
     bs2 = []
-    for i in range(0, len(bs), 2):
-        if i >= 30:
+    for i in range(1, len(bs), 2):
+        if i >= 31:
             break
-        bs2.append((bs[i]&0x0F) | ((bs[i+1]&0x0F)*16))
+        bs2.append((bs[i-1]&0x0F) | ((bs[i]&0x0F)*16))
     if weird:
         sys.stderr.write(str(weird))
-    return bs2
+    return bs2, bool(weird)
 
 def decode_summary(reply):
     summary = {}
@@ -171,18 +172,37 @@ def live_raw():
     reply  = []
     reply2 = []
     while True:
-        try:
-            reply = listen(1)
-            if reply:
-                reply2.extend(reply)
-                continue
-            if not reply2:
-                continue
-            yield reply2
-            reply2 = []
-        except KeyboardInterrupt:
-            break
-    com.timeout = timeout
+        reply = listen(1)
+        if reply:
+            reply2.extend(reply)
+            continue
+        if not reply2:
+            continue
+        yield reply2
+        reply2 = []
+
+def live_sync():
+    "throw away the first partial, then be efficient"
+    err = True
+    while True:
+        if err:  # re-sync
+            for bs in live_raw():
+                if len(bs) != 33:
+                    continue
+                reply,err = decode_raw(bs)
+                if not err:
+                    yield reply
+                    com.timeout = timeout
+                    break
+        # this uses 80% less CPU
+        bs = listen(33)
+        if len(bs) != 33:
+            err = True
+            continue
+        reply,err = decode_raw(bs)
+        if err:
+            continue
+        yield reply
 
 def live_debug_raw():
     for bs in live_raw():
@@ -192,18 +212,15 @@ def live_debug_raw():
 
 def live_debug():
     for bs in live_raw():
-        reply = decode_raw(bs)
+        reply,err = decode_raw(bs)
         for i,b in enumerate(reply):
             pretty_byte(i, b)
         summary = decode_summary(reply)
         print()
 
 def live_monitor(strftime):
-    for bs in live_raw():
-        if len(bs) != 33:
-            continue
+    for reply in live_sync():
         t = datetime.datetime.now().strftime(strftime)
-        reply = decode_raw(bs)
         summary = decode_summary(reply)
         if summary['batt']:
             sys.stderr.write('Warning: battery low')
@@ -253,11 +270,13 @@ def core(options):
 def main():
     options = load_options()
     init(options.port)
-    #live_debug_raw()
-    #live_debug()
 
     try:
+        #live_debug_raw()
+        #live_debug()
         core(options)
+    except KeyboardInterrupt:
+        pass
     except:
         cleanup()
         raise
