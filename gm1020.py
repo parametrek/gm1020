@@ -2,13 +2,14 @@
 
 import sys
 import copy
+import glob
 import time
 import argparse
 import datetime
+import platform
 
 import serial
 
-default_port = '/dev/ttyUSB0'
 baud = 19200
 timeout = 0.05
 default_timestamp = '%Y-%m-%d %H:%M:%S.%f'
@@ -16,7 +17,7 @@ com = None
 
 """
 todo:
-autodetect windows and OSX, use better defaults for them
+breaks if turned on after being plugged in
 figure out what the "fixed" monitoring values do
 port to C/C++ so windows-people don't need python
 """
@@ -52,8 +53,8 @@ def build_parser():
             'Multiple flags can be combined.  It is possible to download, wipe, change the logging interval and continue logging in one command.',
             'To run --monitor for 12 hours and then automatically stop: "timeout -s INT 12h python3 gm1020.py --monitor"',
             )))
-    p.add_argument('--port', dest='port', default=default_port,
-        help='Location of serial port (default: %s)' % default_port)
+    p.add_argument('--port', dest='port', default=None,
+        help='Location of serial port (default: autodetect)')
     p.add_argument('--file', dest='path', default='',
         help='Path to save TSV data to (default: display on stdout)')
     p.add_argument('--unit', dest='unit', default=None, metavar='STRING',
@@ -131,6 +132,34 @@ def load_options():
     options._push_setup = any(vars(options)[k] for k in setup_update)
 
     return options
+
+def port_search():
+    "sets up com, returns boolean success"
+    os_type = platform.system()
+    if os_type not in ['Linux', 'Windows', 'Darwin']:
+        print("Unknown OS", os_type)
+        return False
+    pattern = []
+    if os_type == 'Windows':
+        pattern = ['COM%i' % n for n in range(1, 10)]
+    if os_type == 'Linux':
+        pattern = glob.glob('/dev/ttyUSB*')
+    if os_type == 'Darwin':
+        pattern = glob.glob('/dev/tty.usbserial-*')
+    for port in pattern:
+        try:
+            init(port)
+        except:
+            port = False
+            #cleanup()
+        if port:
+            send(message_bits['status'])
+            reply = listen()
+            if len(reply) != 8:
+                cleanup()
+                continue
+            return True
+    return False
 
 def checksum(message):
     message[-1] = sum(message[:-1]) % 256
@@ -227,6 +256,10 @@ def decode_lux(b1, b2):
         return '%.1f' % lux
     return '%i' % lux
 
+def decode_temp(b1, b2):
+    temp = '%.1f' % ((b1*256 + b2) / 10.0)
+    return temp
+
 def live_monitor(strftime):
     com.timeout = 1  # wait for data
     send(message_bits['live_start'])
@@ -237,7 +270,7 @@ def live_monitor(strftime):
             if reply[0] != 0x33 or reply[1] != 0x22 or reply[4] != 0x01 or reply[7] != 0x11:
                 print('You have discovered something new!  Please report this bug. ', 
                       ' '.join('0x%x' % b for b in reply))
-            temp = '%.1f' % ((reply[5]*256 + reply[6]) / 10.0)
+            temp = decode_temp(reply[5], reply[6])
             lux = decode_lux(reply[2], reply[3])
             yield {'time':t, 'C':temp, 'lux':lux}
         except:
@@ -346,7 +379,13 @@ def core(options):
 
 def main():
     options = load_options()
-    init(options.port)
+    if options.port:
+        init(options.port)
+    else:
+        status = port_search()
+        if not status:
+            print("Port detection failed, please manually specify --port")
+            sys.exit()
 
     try:
         core(options)
