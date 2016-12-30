@@ -260,7 +260,9 @@ def decode_temp(b1, b2):
     temp = '%.1f' % ((b1*256 + b2) / 10.0)
     return temp
 
-def live_monitor(strftime):
+def live_monitor(strftime=None):
+    if strftime is None:
+        strftime = default_timestamp
     com.timeout = 1  # wait for data
     send(message_bits['live_start'])
     while True:
@@ -277,6 +279,30 @@ def live_monitor(strftime):
             break
     send(message_bits['live_stop'])
     com.timeout = timeout
+
+def one_shot(samples=1, duration=0):
+    strftime = default_timestamp
+    com.timeout = 1  # wait for data
+    send(message_bits['live_start'])
+    length = 0
+    temp = 0
+    lux = 0
+    start = time.time()
+    while True:
+        reply = listen()
+        length += 1
+        tick = datetime.datetime.now().strftime(strftime)
+        temp += float(decode_temp(reply[5], reply[6]))
+        lux += float(decode_lux(reply[2], reply[3]))
+        if duration:
+            if start + duration <= time.time():
+                break
+        else:
+            if length >= samples:
+                break
+    send(message_bits['live_stop'])
+    com.timeout = timeout
+    return {'time':tick, 'C':temp/length, 'lux':lux/length}
 
 def dump_memory():
     # could be clever and use the number of samples
