@@ -62,7 +62,7 @@ def cleanup():
 
 def build_parser():
     p = argparse.ArgumentParser(description='Utility for operating the Uni-T UT382 USB luxmeter.',
-        epilog='  '.join((
+        epilog='  \n'.join((
             'Todo: program meter settings, start monitor remotely, download logged readings.'
             'To run --monitor for 12 hours and then automatically stop: "timeout -s INT 12h python3 ut382.py --monitor"',
             )))
@@ -72,6 +72,8 @@ def build_parser():
         help='Path to save TSV data to (default: display on stdout)')
     p.add_argument('--monitor', dest='monitor', action='store_true', default=False,
         help='Live samples from the meter.  8 per second.  Continues forever until ^C.')
+    p.add_argument('--delta', dest='delta', action='store_true', default=False,
+        help='Only output data when the measurement changes.  Implies --monitor.')
     p.add_argument('--moving-average', dest='moving', default=None, type=int, metavar='N',
         help='Average together the last N seconds for more stable readings.  Implies --monitor.')
     dumb_argparse = default_timestamp.replace('%', '%%')
@@ -244,16 +246,18 @@ def live_average(strftime, duration):
 
 def core(options):
     redirect = sys.stdout
+    old = None
+    new = None
     if options.path:
         redirect = open(options.path, 'w', 1)
 
-    if options.monitor:
-        source = live_monitor(options.strftime)
-        k = 'lux'
-    elif options.moving:
+    if options.moving:
         source = live_average(options.strftime, options.moving)
         k = 'ave_lux'
-    if options.monitor or options.moving:
+    elif options.monitor or options.delta:
+        source = live_monitor(options.strftime)
+        k = 'lux'
+    if options.monitor or options.moving or options.delta:
         redirect.write('time\tlight\tunit\n')
         for data in source:
             num = '%.2f'
@@ -262,6 +266,10 @@ def core(options):
             if type(data[k]) == int:
                 num = '%i'
             lux = num % data[k]
+            new = lux
+            if options.delta and new == old:
+                continue
+            old = new
             redirect.write('\t'.join([data['time'], lux, data['unit']]) + '\n')
 
     if options.path:
@@ -284,5 +292,5 @@ def main():
     cleanup()
 
 if __name__ == "__main__":
-        main()
+    main()
 
