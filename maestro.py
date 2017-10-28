@@ -3,7 +3,6 @@
 import glob
 import time
 import platform
-from collections import OrderedDict
 
 import serial
 
@@ -44,16 +43,7 @@ baud = 9600
 timeout = 0.1
 port = '/dev/ttyACM0'
 com = None
-servo_conf = OrderedDict()
-
-def load_conf(path):
-    for line in open(path):
-        line,_,_ = line.partition('#')
-        if ':' not in line:
-            continue
-        key,_,value = line.partition(':')
-        servo_conf[key.strip()] = float(value.strip())
-    return servo_conf
+servo_conf = []
 
 def init(port):
     global com
@@ -119,6 +109,11 @@ def step_size():
     delta = servo_conf['pan-max'] - servo_conf['pan-min']
     per_degree = delta / servo_conf['pan-range']
     return int(round(servo_conf['resolution'] * per_degree))
+
+def convert_deg(pulse_width):
+    dy = servo_conf['pan-range']
+    dx = servo_conf['pan-max'] - servo_conf['pan-min']
+    return ((pulse_width - servo_conf['pan-min']) / dx) * dy
 
 def port_search():
     "sets up com, returns boolean success"

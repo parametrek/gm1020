@@ -43,6 +43,7 @@ def init(port):
     com = serial.Serial(port, baud, timeout=timeout)
 
 def cleanup():
+    send(message_bits['live_stop'])
     com.close()
 
 def build_parser():
@@ -134,11 +135,11 @@ def load_options():
     return options
 
 def port_search():
-    "sets up com, returns boolean success"
+    "sets up com, returns port"
     os_type = platform.system()
     if os_type not in ['Linux', 'Windows', 'Darwin']:
         print("Unknown OS", os_type)
-        return False
+        return None
     pattern = []
     if os_type == 'Windows':
         pattern = ['COM%i' % n for n in range(1, 10)]
@@ -158,8 +159,8 @@ def port_search():
             if len(reply) != 8:
                 cleanup()
                 continue
-            return True
-    return False
+            return port
+    return None
 
 def checksum(message):
     message[-1] = sum(message[:-1]) % 256
@@ -277,7 +278,8 @@ def live_monitor(strftime=None):
             yield {'time':t, 'C':temp, 'lux':lux}
         except:
             break
-    send(message_bits['live_stop'])
+    if com.is_open:
+        send(message_bits['live_stop'])
     com.timeout = timeout
 
 def one_shot(samples=1, duration=0):
@@ -290,6 +292,8 @@ def one_shot(samples=1, duration=0):
     start = time.time()
     while True:
         reply = listen()
+        if len(reply) != 8:
+            continue
         length += 1
         tick = datetime.datetime.now().strftime(strftime)
         temp += float(decode_temp(reply[5], reply[6]))
